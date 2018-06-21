@@ -1,0 +1,303 @@
+##Library innitialization
+```{r}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(data.table)
+library(dplyr)
+library(DT)
+library(survival)
+
+
+library(biomaRt)
+library(org.Hs.eg.db)
+library(topGO)
+library(GO.db)
+
+```
+
+
+##Import Corex Group Information, Write groups for annotation
+```{r}
+#workingDir<-"Corex/out/LUADGeneTable_hidden3_0_200_1_40/"
+workingDir<-"LinearCorex/out/LUADGeneTableVST0_200_1_40/"
+#workingDir<-"LinearCorex/out/LUADGeneTableVST0_100_1_20/"
+#workingDir<-"LinearCorex/out/LUADGeneTableVST0_400_1_80/"
+
+#Import linear corex groups
+corexGroups<-read.table(file = paste0(workingDir,"corexGroups.csv"), sep = ",", header=TRUE, row.names=1)
+#mis<-read.table(file = paste0(workingDir,"mis.csv"), sep = ",", header=TRUE, row.names=1)
+
+#FIND MAF
+#MAFIndex<-grep("ENSG00000178573",row.names(corexGroups))
+#corexGroups[MAFIndex,]
+#corexGroups[which(corexGroups$group0==195),]
+
+#which(corexGroups[which(corexGroups$group0==0),]$mI1>0.25)
+```
+
+##Load custom annotations from biomart, annotate with TopGo
+```{r}
+bm <- useMart("ensembl")
+bm <- useDataset("hsapiens_gene_ensembl", mart=bm)
+
+listAttributes(bm)
+listFilters(bm)
+
+test<-rownames(corexGroups[1,])
+test
+# Get ensembl gene ids and GO terms
+EG2GO <- getBM(mart=bm,
+               attributes=c('ensembl_gene_id','go_id','description')
+               )
+
+listAttributes(bm)
+
+#OR
+#bm=useMart(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+#EG2GO = getBM(mart = bm,attributes=c('ensembl_gene_id','go_id'))
+
+# Remove blank entries
+EG2GO <- EG2GO[EG2GO$go_id != '',]
+
+# convert from table format to list format
+geneID2GO <- by(EG2GO$go_id,
+                EG2GO$ensembl_gene_id,
+                function(x) as.character(x))
+```
+
+##TopGo Annotation of each corex layer 0 Group
+```{r}
+
+dir.create(paste0(workingDir,"annotations"))
+
+for(ii in 0:max(corexGroups[,1])){
+#for(ii in c(6,9,15,16,22,33,75,111,163,272,309,314,380)){
+groupTemp<-corexGroups[which(corexGroups$group0==ii),]
+inSelection = row.names(groupTemp)
+inUniverse = row.names(dataPrep2)
+alg <- ifelse(inUniverse %in% inSelection, 1, 0)
+names(alg) <- inUniverse
+
+GOdata <- new("topGOdata", description="My project", ontology="BP", allGenes=alg, geneSel = function(b) {return(b == 1)}, annot = annFUN.gene2GO, gene2GO = geneID2GO)
+
+write(paste0(ii,": ",numSigGenes(GOdata),"/",length(inSelection)),file=paste0(workingDir,"annotations/numGenesannotated.txt"), append=TRUE)
+
+resultFisher <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+
+topTable<-GenTable(GOdata, classicFisher = resultFisher, topNodes = 200)
+
+#showSigOfNodes(GOdata, score(resultFisher), firstSigNodes = 3, useInfo ='all')
+#printGraph(GOdata, resultFisher, firstSigNodes = 3, fn.prefix = paste0("corexOutputs/layer0GOGraphs/topGraph",toString(ii)), useInfo = "all", pdfSW = TRUE)
+
+
+write.table(topTable, file = paste0(paste0(workingDir,"annotations/topTable"),toString(ii),".csv"), sep = ",", col.names = NA, qmethod = "double")
+
+write(paste0(ii,": ",topTable[c(1,2),c(2,6)]),file=paste0(workingDir,"annotations/topAnnotation.txt"), append=TRUE)
+
+}
+```
+
+##annotation enrichment from clusterProfiler
+```{r}
+library(clusterProfiler)
+library(ReactomePA)
+library(org.Hs.eg.db)
+library(DOSE)
+
+keytypes(org.Hs.eg.db)
+
+
+groupTemp<-corexGroups[which(corexGroups$group0==14),]
+inSelection = row.names(groupTemp)
+inUniverse = row.names(dataPrep2)
+
+eg = bitr(inSelection, fromType="ENSEMBL", toType="ENTREZID", OrgDb="org.Hs.eg.db")
+eu = bitr(inUniverse, fromType="ENSEMBL", toType="ENTREZID", OrgDb="org.Hs.eg.db")
+
+unique(eu$ENTREZID)
+
+length(inSelection)
+
+eg$ENTREZID
+
+w <- enrichGO(gene = eg$ENTREZID,
+                OrgDb         = org.Hs.eg.db,
+                keyType       = 'ENTREZID',
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                universe = eu$ENTREZID,
+                pvalueCutoff  = 0.01,
+                qvalueCutoff  = 0.05)
+
+setReadable(w, 'org.Hs.eg.db')
+
+wdf<-as.data.frame(w)
+
+wdf
+
+x <- enrichPathway(gene=eg$ENTREZID,pvalueCutoff=0.1,universe = eu$ENTREZID)
+
+setReadable(x, 'org.Hs.eg.db')
+xdf<-as.data.frame(x)
+xdf
+
+
+y <- enrichKEGG(gene=eg$ENTREZID,
+                 organism='hsa',
+                 pvalueCutoff=0.05)
+setReadable(y, 'org.Hs.eg.db')
+
+ydf<-as.data.frame(y)
+ydf
+
+z <- enrichDO(gene=eg$ENTREZID,pvalueCutoff=0.1,universe = eu$ENTREZID)
+setReadable(z, 'org.Hs.eg.db')
+zdf<-as.data.frame(z)
+
+zdf
+
+ncg <- enrichNCG(gene=eg$ENTREZID,pvalueCutoff=0.1,universe = eu$ENTREZID)
+setReadable(ncg, 'org.Hs.eg.db')
+ncgdf<-as.data.frame(setReadable(ncg, 'org.Hs.eg.db'))
+
+ncgdf
+
+```
+
+```{r}
+
+dir.create(paste0(workingDir,"annotationsClusterProfiler"))
+
+for(ii in 0:max(corexGroups[,1])){
+#for(ii in c(13,14)){
+groupTemp<-corexGroups[which(corexGroups$group0==ii),]
+inSelection = row.names(groupTemp)
+inUniverse = row.names(dataPrep2)
+
+eg = bitr(inSelection, fromType="ENSEMBL", toType="ENTREZID", OrgDb="org.Hs.eg.db")
+eu = bitr(inUniverse, fromType="ENSEMBL", toType="ENTREZID", OrgDb="org.Hs.eg.db")
+
+w <- enrichGO(gene = eg$ENTREZID,
+                OrgDb         = org.Hs.eg.db,
+                keyType       = 'ENTREZID',
+                ont           = "BP",
+                pAdjustMethod = "BH",
+                universe = eu$ENTREZID,
+                pvalueCutoff  = 0.01,
+                qvalueCutoff  = 0.05,
+                readable=TRUE)
+wdf<-as.data.frame(w)
+write.table(wdf, file = paste0(paste0(workingDir,"annotationsClusterProfiler/go"),toString(ii),".csv"), sep = ",", col.names = NA, qmethod = "double")
+write(paste0(ii,":",wdf[1,2]),file=paste0(workingDir,"annotationsClusterProfiler/topAnnotations.txt"), append=TRUE)
+
+x <- enrichPathway(gene=eg$ENTREZID,pvalueCutoff=0.1,universe = eu$ENTREZID, readable=T)
+xdf<-as.data.frame(x)
+xdf
+write.table(xdf, file = paste0(paste0(workingDir,"annotationsClusterProfiler/reactome"),toString(ii),".csv"), sep = ",", col.names = NA, qmethod = "double")
+
+y <- enrichKEGG(gene=eg$ENTREZID,
+                organism='hsa',
+                universe = eu$ENTREZID,
+                pvalueCutoff=0.05)
+ydf<-as.data.frame(y)
+ydf
+write.table(ydf, file = paste0(paste0(workingDir,"annotationsClusterProfiler/kegg"),toString(ii),".csv"), sep = ",", col.names = NA, qmethod = "double")
+
+z <- enrichDO(gene=eg$ENTREZID,universe=eu$ENTREZID,pvalueCutoff=0.05)
+zdf<-as.data.frame(z)
+zdf
+write.table(zdf, file = paste0(paste0(workingDir,"annotationsClusterProfiler/do"),toString(ii),".csv"), sep = ",", col.names = NA, qmethod = "double")
+
+
+}
+```
+
+##TopGo Annotation of each corex layer 0 Group mis
+```{r}
+workingDir2=paste0(workingDir,"annotationsMis0p15/")
+dir.create(workingDir2)
+#for(ii in 1:length(mis[1,])){
+for(ii in 1+c(6,9,15,16,22,33,75,111,163,272,309,314,380)){
+groupTemp<-mis[which(mis[,ii]>0.15),]
+inSelection = row.names(groupTemp)
+inUniverse = row.names(dataPrep2)
+alg <- ifelse(inUniverse %in% inSelection, 1, 0)
+names(alg) <- inUniverse
+
+GOdata <- new("topGOdata", description="My project", ontology="BP", allGenes=alg, geneSel = function(b) {return(b == 1)}, annot = annFUN.gene2GO, gene2GO = geneID2GO)
+
+write(paste0(ii-1,": ",numSigGenes(GOdata),"/",length(inSelection)),file=paste0(workingDir2,"numGenesannotated.txt"), append=TRUE)
+
+resultFisher <- runTest(GOdata, algorithm = "weight01", statistic = "fisher")
+
+topTable<-GenTable(GOdata, classicFisher = resultFisher, topNodes = 200)
+
+#showSigOfNodes(GOdata, score(resultFisher), firstSigNodes = 3, useInfo ='all')
+#printGraph(GOdata, resultFisher, firstSigNodes = 3, fn.prefix = paste0("corexOutputs/layer0GOGraphs/topGraph",toString(ii)), useInfo = "all", pdfSW = TRUE)
+
+write.table(topTable, file = paste0(paste0(workingDir2,"topTable"),toString(ii-1),".csv"), sep = ",", col.names = NA, qmethod = "double")
+}
+```
+
+
+
+##Make a file with gene names and descrptions for each group
+```{r}
+# Get ensembl gene ids and GO terms
+EGWD <- getBM(mart=bm,attributes=c('ensembl_gene_id','external_gene_name','description'))
+
+dir.create(paste0(workingDir,"descriptions"))
+for(ii in 0:max(corexGroups[,1])){
+groupTemp<-corexGroups[which(corexGroups$group0==ii),]
+write.table(EGWD[EGWD$ensembl_gene_id%in%rownames(groupTemp),], file = paste0(paste0(workingDir,"descriptions/group0_"),toString(ii),".txt"),quote=FALSE, row.names=FALSE, col.names=FALSE, sep ="\t")
+write(length(rownames(groupTemp)),file=paste0(workingDir,"descriptions/numGenes.txt"), append=TRUE)
+}
+
+length(mis[1,])
+
+dir.create(paste0(workingDir,"descriptionsMis0p15"))
+for(ii in 1:length(mis[1,])){
+groupTemp<-mis[which(mis[,ii]>0.15),]
+write.table(EGWD[EGWD$ensembl_gene_id%in%rownames(groupTemp),], file = paste0(paste0(workingDir,"descriptionsMis0p15/group0_"),toString(ii-1),".txt"),quote=FALSE, row.names=FALSE, col.names=FALSE, sep ="\t")
+write(length(rownames(groupTemp)),file=paste0(workingDir,"descriptionsMis0p15/numGenes.txt"), append=TRUE)
+}
+```
+##Compare groups
+```{r}
+
+g1<-read.table(file = "LinearCorex/out/LUADGeneTableVST0_200_1_40/descriptions/group0_13.txt", sep = "\t", header=FALSE, row.names=1)
+
+g2<-read.table(file = "LinearCorex/out/LUADGeneTableVST0_100_1_20/descriptions/group0_9.txt", sep = "\t", header=FALSE, row.names=1)
+
+length(rownames(g1))
+length(rownames(g2))
+length(which(rownames(g2)%in%rownames(g1)))
+length(which(rownames(g1)%in%rownames(g2)))
+
+```
+
+##Make a file with Ensemble ids for each group for Panther
+```{r}
+dir.create(paste0(workingDir,"layer0IDs"))
+for(ii in 0:max(corexGroups[,1])){
+outfile0<-paste0(paste0(workingDir,"layer0IDs/group0_"),toString(ii),".txt")
+group0Temp<-corexGroups[which(corexGroups$group0==ii),]
+write.table(rownames(group0Temp), file = outfile0, quote=FALSE, row.names=FALSE, col.names=FALSE)
+}
+
+dir.create(paste0(workingDir,"layer0IDsMis"))
+for(ii in 1:length(mis[1,])){
+outfile0<-paste0(paste0(workingDir,"layer0IDsMis/group0_"),toString(ii-1),".txt")
+group0Temp<-mis[which(mis[,ii]>0.05),]
+write.table(rownames(group0Temp), file = outfile0, quote=FALSE, row.names=FALSE, col.names=FALSE)
+}
+
+dir.create(paste0(workingDir,"layer0IDsAlpha"))
+for(ii in 1:length(alpha[1,])){
+outfile0<-paste0(paste0(workingDir,"layer0IDsAlpha/group0_"),toString(ii-1),".txt")
+group0Temp<-alpha[which(alpha[,ii]>0.01),]
+write.table(rownames(group0Temp), file = outfile0, quote=FALSE, row.names=FALSE, col.names=FALSE)
+}
+
+
+```

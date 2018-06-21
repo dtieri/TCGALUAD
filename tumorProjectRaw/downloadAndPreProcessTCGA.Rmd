@@ -1,0 +1,163 @@
+##Library innitialization
+```{r}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(data.table)
+library(dplyr)
+library(DT)
+library(survival)
+library(limma)
+library(DESeq2)
+
+
+#library("categoryCompare")
+#library("GO.db")
+#library("KEGG.db")
+
+```
+
+
+##Download data, prepare data into matrix, normalize, filter
+```{r}
+CancerProject <- "TCGA-LUAD"
+
+query <- GDCquery(project = CancerProject,
+                  data.category = "Transcriptome Profiling",
+                  data.type = "Gene Expression Quantification", 
+                  workflow.type = "HTSeq - Counts")
+
+samplesDown <- getResults(query,cols=c("cases"))
+
+dataSmTP <- TCGAquery_SampleTypes(barcode = samplesDown,
+                                  typesample = "TP")
+
+#dataSmNT <- TCGAquery_SampleTypes(barcode = samplesDown,typesample = "NT")
+
+#dataSmTPNT<-TCGAquery_MatchedCoupledSampleTypes(barcode = samplesDown,c("NT","TP"))
+
+#dataSmTPNT<-TCGAquery_MatchedCoupledSampleTypes(barcode = samplesDown,c("NT","TP"))
+
+
+
+queryDown <- GDCquery(project = CancerProject, 
+                      data.category = "Transcriptome Profiling",
+                      data.type = "Gene Expression Quantification", 
+                      workflow.type = "HTSeq - Counts", 
+                      barcode = dataSmTP)
+
+GDCdownload(query = queryDown,directory = "GDCdata")
+#GDCdownload(query = queryDown,method = "client",chunks.per.download = 10)
+
+# get indexed clinical data
+dataClin <- GDCquery_clinic(project = CancerProject, "Clinical")
+
+# get subtype information
+dataSubt <- TCGAquery_subtype(tumor = "LUAD")
+
+dataPrep <- GDCprepare(query = queryDown,
+                       directory = "GDCdata",
+                       save = TRUE, 
+                       save.filename="dataPrep.rda")
+
+#get subtype information
+#dataSubt <- TCGAquery_subtype(tumor = "BRCA")
+
+#dataPrep <- subset(dataPrep, select = colData(dataPrep)$patient %in% dataSubt$patient)
+
+dataPrepP<-dataPrep[,grep("stage ii$|stage iia|stage iib",colData(dataPrep)$`tumor_stage`)]
+
+#changes data from RangedSummarizedExperiment to matrix
+#dataPrep2 <- TCGAanalyze_Preprocessing(object = dataPrep, cor.cut = 0.0,datatype = "HTSeq - Counts")
+
+dataPrep2<-assays(dataPrepP)$`HTSeq - Counts`
+
+#dataNorm <- TCGAanalyze_Normalization(tabDF = dataPrep2,
+#                                      geneInfo = geneInfoHT,
+#                                      method = "gcContent")
+
+#boxplot(dataPrep, outline = FALSE)
+
+#dataFilt <- TCGAanalyze_Filtering(tabDF = dataPrep2, method = "quantile", qnt.cut =  0.0)  
+
+#dataFilt1 <- TCGAanalyze_Filtering(tabDF = dataNorm,method = "varFilter")
+#dataFilt2 <- TCGAanalyze_Filtering(tabDF = dataFilt1,method = "filter1")
+#dataFilt <- TCGAanalyze_Filtering(tabDF = dataFilt2,method = "filter2")
+
+#dataPrep3<-dataPrep2[ rowSums(dataPrep2) > 1, ]
+
+dataPrep3<-dataPrep2[ rowSums(dataPrep2) > length(dataPrep2[1,])*0.5, ]
+
+#dataPrep3<-dataPrep2[rowSums(dataPrep2) >= length(dataPrep2[1,])*0.5, ]
+
+#dataPrep3<-dataPrep2[rowSums(dataPrep2 == 0) <= length(dataPrep2[1,])*0.5, ]
+
+#dataPrep4<-rlog(dataPrep3[1:100,1:10])
+
+dataPrep4<-varianceStabilizingTransformation(dataPrep3)
+
+dim(dataPrep3)
+
+#Filter out genes that have zeros in more than 50% of cases
+#numGenes<-length(dataPrep2[,1])
+#numCases<-length(dataPrep2[1,])
+#status<-0
+#for(ii in 1:numGenes){
+#  if(length(which(dataPrep2[ii,]<0.000000001))>0.5*numCases)
+#    status[ii] <- 1
+#  else
+#    status[ii] <- 0
+#}
+#dataPrep3<-dataPrep2[which(status==0),]
+#write.table(scale(t(log2(dataPrep3+1)), center = TRUE, scale = TRUE), file = "out/LUADGeneTable.csv", sep = ",", col.names = NA, qmethod = "double")
+write.table(scale(t(dataPrep4), center = TRUE, scale = TRUE), file = "out/LUADGeneTableVSTii.csv", sep = ",", col.names = NA, qmethod = "double")
+
+#--------------Find genes-------------------------------------
+grep("ENSG00000129226",row.names(dataPrep4))
+grep("ENSG00000122877",row.names(dataPrep4))
+grep("ENSG00000038945",row.names(dataPrep4))
+grep("ENSG00000120217",row.names(dataPrep4))
+grep("ENSG00000153815",row.names(dataPrep4))
+grep("ENSG00000178573",row.names(dataPrep4))
+#dataNorm[grep("ENSG00000178573",row.names(dataNorm)),]
+```
+```{r}
+library("vsn")
+meanSdPlot(log2(dataPrep3+1), ranks = FALSE)
+meanSdPlot(dataPrep4, ranks = FALSE)
+```
+
+##Filter and keep only differentially expressed genes
+```{r}
+dataDEGs<-read.table(file = "../tumorNormalProject/out/DiffExpLUADTable.csv", sep = ",", header=TRUE, row.names=1)
+dim(dataDEGs)
+dim(dataPrep3)
+dataPrep3DE<-dataPrep3[rownames(dataPrep3) %in% rownames(dataDEGs),]
+dim(dataPrep3DE)
+dim(dataDEGs)
+
+head(dataPrep3DE)
+
+grep("ENSG00000178573",row.names(dataPrep3DE))
+
+#write.table(scale(t(log2(dataPrep3DE+1)), center = TRUE, scale = TRUE), file = "out/LUADGeneTableDE.csv", sep = ",", col.names = NA, qmethod = "double")
+
+dataPrep4DE<-voom(dataPrep3DE, design=NULL, plot=TRUE)
+
+limma-trend
+
+fit <- lmFit(v, design=mod, weights=aw, block=mouse, correlation=d$consensus)
+eb <- eBayes(fit, trend=TRUE, robust=TRUE)
+
+dataPrep4DE$targets
+
+dataPrep3DE
+
+dataPrep3DEvst<-vst(dataPrep3DE)
+
+dim(dataPrep3DEvst)
+
+write.table(scale(t(dataPrep4DE$E), center = TRUE, scale = TRUE), file = "out/LUADGeneTableVoomDE.csv", sep = ",", col.names = NA, qmethod = "double")
+
+write.table(scale(t(dataPrep3DEvst), center = TRUE, scale = TRUE), file = "out/LUADGeneTableVSTDE.csv", sep = ",", col.names = NA, qmethod = "double")
+
+```

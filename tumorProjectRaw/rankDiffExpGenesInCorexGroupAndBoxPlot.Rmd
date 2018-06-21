@@ -1,0 +1,157 @@
+##Library innitialization
+```{r}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(data.table)
+library(dplyr)
+library(DT)
+library(survival)
+library(easyGgplot2)
+
+#library("categoryCompare")
+#library("GO.db")
+#library("KEGG.db")
+
+```
+
+
+##Import Corex Group Information, Import list of Differentially Expressed Genes
+```{r}
+
+workingDir<-"LinearCorex/out/LUADGeneTableVST0_200_1_40/"
+
+corexGroups<-read.table(file = paste0(workingDir,"corexGroups.csv"), sep = ",", header=TRUE, row.names=1)
+
+diffExpDir<-"../tumorNormalProject/out/"
+
+diffExpGenes<-read.table(file = paste0(diffExpDir,"DiffExpLUADTable.csv"), sep = ",", header=TRUE, row.names=1)
+
+dim(diffExpGenes)
+
+#FIND MAF
+#MAFIndex<-grep("ENSG00000178573",row.names(corexGroups))
+#corexGroups[MAFIndex,]
+#corexGroups[which(corexGroups$group0==195),]
+
+#which(corexGroups[which(corexGroups$group0==0),]$mI1>0.25)
+```
+
+##Find and rank differentially expressed genes in a corex group
+```{r}
+groupTemp<-corexGroups[which(corexGroups$group0==19),]
+
+diffExpGenesTemp<-diffExpGenes[rownames(diffExpGenes)%in%rownames(groupTemp),]
+
+dim(groupTemp)
+
+groupTemp
+
+dim(diffExpGenesTemp)
+
+sortedGenesTemp<-sort(abs(diffExpGenesTemp$logFC),decreasing=TRUE,index.return=TRUE)
+
+#sortedGenesTemp<-sort(diffExpGenesTemp$PValue,decreasing=FALSE,index.return=TRUE)
+
+sortedGenesTemp$ix
+
+diffExpGenesTemp[sortedGenesTemp$ix,]
+
+write.csv(diffExpGenesTemp[sortedGenesTemp$ix,], file = paste0(workingDir,"diffExpRankGroup19.csv"),quote=FALSE)
+```
+
+##Find and rank differentially expressed IG genes
+```{r}
+
+diffExpIGGenes<-diffExpGenes[grep("^IG.*",diffExpGenes$external_gene_name),]
+
+IGGenes<-diffExpGenes[grep("^IG.*",diffExpGenes$external_gene_name),]
+
+#diffExpIGGenesSorted<-sort(diffExpIGGenes$logFC,index.return=TRUE)
+diffExpIGGenesSorted<-sort(abs(diffExpIGGenes$logFC),decreasing=TRUE,index.return=TRUE)
+
+diffExpIGGenesSorted$ix[1:10]
+
+length(diffExpIGGenesSorted)
+
+write.csv(diffExpIGGenes[diffExpIGGenesSorted$ix,], file = paste0(workingDir,"diffExpRankAllIG.csv"),quote=FALSE)
+
+
+```
+##Filter Ethnicities
+```{r}
+
+dataPrepW<-dataPrep[,grep("white.*",colData(dataPrep)$race)]
+
+dataPrepB<-dataPrep[,grep("black.*",colData(dataPrep)$race)]
+colData(dataPrepB)$race<-"black"
+
+dataPrepWB<-cbind(dataPrepW,dataPrepB)
+rm(dataPrepW)
+rm(dataPrepB)
+
+dataPrepWB$race
+
+colData(dataPrepWB)
+```
+
+##Selected genes
+```{r}
+diffExpIGGenes[diffExpIGGenesSorted$ix[1:10],]
+
+dataPrepSelected<-dataPrepWB[rownames(dataPrepWB) %in%rownames(diffExpIGGenes[diffExpIGGenesSorted$ix[1],]),]
+
+colData(dataPrepSelected)$race
+
+dataPrepSelectedCounts<-data.frame(t(assays(dataPrepSelected)$"HTSeq - Counts"))
+dataPrepSelectedCounts$race<-colData(dataPrepSelected)$race
+dim(dataPrepSelectedCounts)
+
+dataPrepSelectedCounts$ENSG00000159217
+
+dataPrepSelectedCounts[,1]
+
+dataPrepSelectedCountsL<-dataPrepSelectedCounts[which(dataPrepSelectedCounts[,1]<=quantile(dataPrepSelectedCounts[,1],probs=0.25)),]
+dataPrepSelectedCountsL$exprGr<-"Low"
+dim(dataPrepSelectedCountsL)
+dataPrepSelectedCountsL$exprGr
+
+
+dataPrepSelectedCountsU<-dataPrepSelectedCounts[which(dataPrepSelectedCounts[,1]>=quantile(dataPrepSelectedCounts[,1],probs=0.75)),]
+dataPrepSelectedCountsU$exprGr<-"High"
+dim(dataPrepSelectedCountsU)
+dataPrepSelectedCountsU$exprGr
+
+dataPrepSelectedCountsLU<-rbind(dataPrepSelectedCountsL,dataPrepSelectedCountsU)
+rm(dataPrepSelectedCountsL)
+rm(dataPrepSelectedCountsU)
+
+dataPrepSelectedCountsLU
+
+dataPrepSelectedCountsLU$race<-as.factor(dataPrepSelectedCountsLU$race)
+dataPrepSelectedCountsLU$exprGr<-as.factor(dataPrepSelectedCountsLU$exprGr)
+
+ggplot2.dotplot(data=dataPrepSelectedCountsLU, xName='exprGr',yName='ENSG00000159217', groupName='race',
+      position=position_dodge(0.0), 
+      backgroundColor="white", groupColors=c('blue','red'),
+      addBoxplot=TRUE, boxplotFill="white")
+```
+
+
+#Example
+```{r}
+ToothGrowth$dose <- as.factor(ToothGrowth$dose)
+ToothGrowth
+
+ggplot(ToothGrowth, aes(x=dose, y=len, fill=supp)) +
+  geom_dotplot(binaxis='y', stackdir='center')
+
+df <- ToothGrowth
+head(df)
+
+ggplot2.dotplot(data=df, xName='dose',yName='len', groupName='supp',
+      position=position_dodge(0.0), 
+      backgroundColor="white", groupColors=c('blue','red'),
+      addBoxplot=TRUE, boxplotFill="white")
+
+```
+
