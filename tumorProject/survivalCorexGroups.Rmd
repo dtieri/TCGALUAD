@@ -1,0 +1,111 @@
+##Library innitialization
+```{r}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(data.table)
+library(dplyr)
+library(DT)
+library(survival)
+library(survminer)
+
+#library("categoryCompare")
+#library("GO.db")
+#library("KEGG.db")
+
+```
+
+
+##Calculate Survival Object using colData(dataPrep)
+```{r}
+metaData<-colData(dataPrep)
+#rM<-read.csv("survivalPlots/rowMedians.csv",row.names=1)
+
+#remove outilers that screw up survival plots
+outliersdtd<-which(metaData$days_to_death>quantile(metaData$days_to_death,probs = 0.95,na.rm=TRUE))
+metaData<-metaData[-outliersdtd,]
+
+
+outliersdtlf<-which(metaData$days_to_last_follow_up>quantile(metaData$days_to_last_follow_up,probs = 0.95,na.rm=TRUE))
+metaData<-metaData[-outliersdtlf,]
+
+dim(metaData)
+
+#crate time variable for survival
+time <- 0
+status<-0
+for(ii in 1:length(metaData$vital_status)){
+  if(metaData$vital_status[ii]=="alive"){
+    time[ii]<-metaData$days_to_last_follow_up[ii]
+    status[ii] <- 0
+  }
+  else{
+    time[ii]<-metaData$days_to_death[ii]
+    status[ii] <- 1
+  }
+}
+
+metaData$time<- time
+metaData$status<- status
+remove(time)
+remove(status)
+
+metaData<-merge(metaData,rM,by=0)
+row.names(metaData)<-metaData$Row.names
+metaData$Row.names<-NULL
+
+rM
+
+
+metaData$rowMedians
+
+quantile(metaData$rowMedians,probs = 0.25)
+
+which(metaData$rowMedians<quantile(metaData$rowMedians,probs = 0.25))
+```
+
+##KM Model
+```{r}
+metaDataL<-metaData[which(metaData$rowMedians<=quantile(metaData$rowMedians,probs = 0.25)),]
+
+metaDataL$exprGr<-"Low"
+
+metaDataU<-metaData[which(metaData$rowMedians>=quantile(metaData$rowMedians,probs = 0.75)),]
+metaDataU$exprGr<-"High"
+
+metaDataLU<-rbind(metaDataL,metaDataU)
+rm(metaDataL)
+rm(metaDataU)
+
+kmModel<-survfit(Surv(time,status) ~ exprGr , data=metaDataLU)
+kmp<-ggsurvplot(kmModel,data=metaDataLU,pval = TRUE,break.time.by=500,title=geneGroup)
+kmp$plot
+pdf(paste0("survivalPlots/kmSurvival",geneGroup,".pdf"))
+kmp$plot
+dev.off()
+#ggsurvplot(kmModel,data=metaDataLU,pval = TRUE,xlim=c(0, 2000),break.time.by=500)
+
+```
+
+##Cox Model
+```{r}
+
+coxModel<-coxph(Surv(time,status) ~ rowMedians, data=metaData)
+
+coxModelSummary<-summary(coxModel)
+coxModelSummary
+coxModelSummary$coefficients[5]
+
+round(coxModelSummary$coefficients[5],5)
+
+#rowMediansQuant<-data.frame(c(-2,2))
+rowMediansQuant<-data.frame(quantile(metaData$rowMedians,probs=c(0.125,0.875)))
+colnames(rowMediansQuant)<-"rowMedians"
+
+cp<-ggsurvplot(survfit(coxModel,newdata=rowMediansQuant),data=metaData,conf.int = FALSE,title=geneGroup)
+cp2<-cp$plot+ggplot2::annotate("text",x = 350, y = 0.2,label = paste0("Cox model","\n p < ",round(coxModelSummary$coefficients[5],5)), size = 5)
+cp2
+pdf(paste0("survivalPlots/coxSurvival",geneGroup,".pdf"))
+cp2
+dev.off()
+```
+

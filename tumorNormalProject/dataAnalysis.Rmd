@@ -1,0 +1,279 @@
+##Library innitialization
+```{r}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(data.table)
+library(dplyr)
+library(DT)
+library(survival)
+
+
+#library("categoryCompare")
+#library("GO.db")
+#library("KEGG.db")
+```
+
+
+##Download data only for cases that have normal and tumor samples, prepare data into matrix, normalize, filter
+```{r}
+CancerProject <- "TCGA-LUAD"
+
+query <- GDCquery(project = CancerProject,
+                  data.category = "Transcriptome Profiling",
+                  data.type = "Gene Expression Quantification", 
+                  workflow.type = "HTSeq - Counts")
+
+samplesDown <- getResults(query,cols=c("cases"))
+
+dataSmTPNT<-TCGAquery_MatchedCoupledSampleTypes(barcode = samplesDown, c("NT","TP"))
+
+queryDown <- GDCquery(project = CancerProject, 
+                      data.category = "Transcriptome Profiling",
+                      data.type = "Gene Expression Quantification", 
+                      workflow.type = "HTSeq - Counts", 
+                      barcode = dataSmTPNT)
+                    
+
+GDCdownload(query = queryDown)
+
+# get indexed clinical data
+dataClin <- GDCquery_clinic(project = CancerProject, "Clinical")
+
+dataPrep <- GDCprepare(query = queryDown, 
+                       save = TRUE, 
+                       save.filename="dataPrep.rda")
+
+colData(dataPrep)
+
+#get subtype information
+#dataSubt <- TCGAquery_subtype(tumor = "BRCA")
+
+#dataPrep <- subset(dataPrep, select = colData(dataPrep)$patient %in% dataSubt$patient)
+
+dataPrep2 <- TCGAanalyze_Preprocessing(object = dataPrep, 
+                                      cor.cut = 0.0,
+                                      datatype = "HTSeq - Counts") 
+
+length(which(rowMeans(dataPrep2, na.rm = FALSE, dims = 1) > 1))
+
+
+dataPrep3 <- dataPrep2[which(rowMeans(dataPrep2, na.rm = FALSE, dims = 1) > 1),]
+dim(dataPrep2)
+dim(dataPrep3)
+
+#dataNorm <- TCGAanalyze_Normalization(tabDF = dataPrep2,geneInfo = geneInfoHT,method = "geneLength")
+
+#boxplot(dataPrep, outline = FALSE)
+
+#boxplot(dataNorm, outline = FALSE)
+
+#dataFilt <- TCGAanalyze_Filtering(tabDF = dataPrep2, method = "quantile", qnt.cut =  0.1)  
+
+#Filter out genes that have zeros in more than 50% of cases
+numGenes<-length(dataPrep2[,1])
+numCases<-length(dataPrep2[1,])
+status<-0
+for(ii in 1:numGenes){
+  if(length(which(dataPrep2[ii,]<0.000000001))>0.5*numCases)
+    status[ii] <- 1
+  else
+    status[ii] <- 0
+}
+dataPrep3<-dataPrep2[which(status==0),]
+dim(dataPrep2)
+dim(dataPrep3)
+
+#dataFilt1 <- TCGAanalyze_Filtering(tabDF = dataNorm,method = "varFilter")
+#dataFilt2 <- TCGAanalyze_Filtering(tabDF = dataFilt1,method = "filter1")
+#dataFilt <- TCGAanalyze_Filtering(tabDF = dataFilt2,method = "filter2")
+```
+
+
+##Differential expression
+```{r}
+#dataDEGs <- TCGAanalyze_DEA(mat1 = dataFilt[,1:(length(dataSmTPNT)/2)],
+#                            mat2 = dataFilt[,(1+length(dataSmTPNT)/2):length(dataSmTPNT)],
+#                            Cond1type = "Normal",
+#                            Cond2type = "Tumor",
+#                            fdr.cut = 0.01 ,
+#                            logFC.cut = 1,
+#                            method = "glmLRT")  
+
+
+S <- TCGAquery_SampleTypes(colnames(dataPrep3),"NT")
+S2 <- TCGAquery_SampleTypes(colnames(dataPrep3),"TP")
+S3<-S2[match(unique(substr(S2,1,12)),substr(S2,1,12))]
+S3
+
+length(colnames(dataPrep2))
+
+dataDEGs <- TCGAanalyze_DEA(mat1 = dataPrep3[,S],
+                            mat2 = dataPrep3[,S2],
+                            Cond1type = "Normal",
+                            Cond2type = "Tumor",
+                            fdr.cut = 0.01 ,
+                            logFC.cut = 2,
+                            method = "glmLRT") 
+
+dim(dataDEGs)
+
+write.table(dataDEGs, file = "out/DiffExpLUADTableLFC2.csv", sep = ",", col.names = NA, qmethod = "double")
+
+# DEGs table with expression values in normal and tumor samples
+dataDEGsFiltLevel <- TCGAanalyze_LevelTab(dataDEGs,"Normal","Tumor",dataFilt[,S],dataFilt[,S2])
+dataDEGsFiltLevel
+
+#write.table(dataDEGsFiltLevel, file = "dataDEGs.csv", sep = ",", col.names = NA, qmethod = "double")
+
+ansEA <- TCGAanalyze_EAcomplete(TFname="DEA genes Normal Vs Tumor",
+                                RegulonList = dataDEGsFiltLevel$external_gene_name)  
+ansEA$ResBP
+
+TCGAvisualize_EAbarplot(tf = rownames(ansEA$ResBP),
+                        GOBPTab = ansEA$ResBP,
+                        GOCCTab = ansEA$ResCC,
+                        GOMFTab = ansEA$ResMF,
+                        PathTab = ansEA$ResPat,
+                        nRGTab = rownames(dataDEGs),
+                        nBar = 100)
+
+#Doesnt work
+#dataSurv <- TCGAanalyze_SurvivalKM(clinical_patient = dataClin,
+#                                   dataGE = dataFilt,
+#                                   Genelist = rownames(dataFilt),
+#                                   Survresult = FALSE,
+#                                   ThreshTop = 0.67,
+#                                   ThreshDown = 0.33,
+#                                   p.cut = 0.05,S,S2)
+
+# Doesnt work. Network of genes that interact according to the string database, that also have survival correlations.
+
+#require(dnet)  # to change
+#org.Hs.string <- dRDataLoader(RData = "org.Hs.string")
+
+#rownames(dataSurv)
+
+#TabCoxNet <- TCGAvisualize_SurvivalCoxNET(dataClin,
+#                                          dataFilt, 
+#                                          Genelist = rownames(dataSurv),
+#                                          scoreConfidence = 700,
+#                                          org.Hs.string = org.Hs.string,
+#                                          titlePlot = "Case Study n.1 dnet")
+```
+```{r}
+match(unique(substr(S3,1,12)),substr(S1,1,12))
+```
+
+
+```{r}
+dim(dataDEGs)
+dim(dataFilt)
+grep("ENSG00000178573",row.names(dataDEGs))
+grep("ENSG00000005187",row.names(dataDEGs))
+```
+
+##Gene annotations and ontology
+```{r}
+library(biomaRt)
+library(org.Hs.eg.db)
+library(topGO)
+
+row.names(dataDEGs) 
+
+dim(dataDEGs)
+
+inUniverse = row.names(dataFilt)
+inSelection = row.names(dataDEGs) 
+alg <- ifelse(inUniverse %in% inSelection, 1, 0)
+#or
+#alg <- factor(as.integer(inUniverse %in% inSelection))
+names(alg) <- row.names(dataFilt)
+
+GOdata <- new("topGOdata", ontology = "BP", allGenes = alg, geneSel = function(b) {return(b == 1)}, description = "Test", annot = annFUN.org, mapping = "org.Hs.eg.db", 
+    ID = "Ensembl")
+
+resultFisher <- runTest(GOdata, algorithm = "classic", statistic = "fisher")
+topTable<-GenTable(GOdata, classicFisher = resultFisher, topNodes = 10)
+showSigOfNodes(GOdata, score(resultFisher), firstSigNodes = 3, useInfo ='all')
+printGraph(GOdata, resultFisher, firstSigNodes = 3, fn.prefix = "tGO", useInfo = "all", pdfSW = TRUE)
+
+write.table(topTable, file = "topTable.csv", sep = ",", col.names = NA, qmethod = "double")
+
+topTable
+myterms = c("GO:0001780", "GO:0043516")
+GOgenes <- genesInTerm(GOdata, myterms)
+mygenes<-lapply(GOgenes,function(b) {return(b[b %in% sigGenes(GOdata)])})
+mygenes
+```
+
+
+##Filter and keep only differentially expressed genes
+```{r}
+dim(dataFilt)
+dataFiltDE<-dataFilt[rownames(dataFilt) %in% rownames(dataDEGs),]
+dim(dataFiltDE)
+dim(dataDEGs)
+
+rownames(dataDEGs)
+
+dataDEGs
+
+TCGAanalyze_EAcomplete
+```
+
+##Hirarchal Clustering
+```{r}
+#-----------------------HC cluster-------------------------
+data_Hc1 <- TCGAanalyze_Clustering(tabDF = t(dataFilt),
+                                   method = "hclust",
+                                   methodHC = "ward.D2")
+
+cluster <- data.frame("groupsHC" = cutree(data_Hc1,k=4))
+
+cluster$groupsHC <- paste0("EC",cluster$groupsHC)
+
+cluster$patient <-  substr(colData(dataPrep)$patient,1,12)
+
+#-----------------------Consensus cluster-------------------------
+#data_Hc2 <- TCGAanalyze_Clustering(tabDF = t(dataFilt),
+#                                   method = "consensus",
+#                                   methodHC = "ward.D2") 
+
+#cluster <- data.frame("groupsHC" = data_Hc2[[4]]$consensusClass)
+
+#cluster$groupsHC <- paste0("EC",cluster$groupsHC)
+
+#cluster$patient <-  substr(colData(dataPrep)$patient,1,12)
+
+#-------Add information about gropus from clustering in clinical data---------
+dataClin <- merge(dataClin,cluster, by.x="bcr_patient_barcode", by.y="patient")
+
+#---------------Merge subtype and clinical data-------------------------------------
+clin_subt <- merge(dataClin,dataSubt, by.x="bcr_patient_barcode", by.y="patient")
+clin_subt_all <- merge(dataClin,dataSubt, 
+                       by.x="bcr_patient_barcode", by.y="patient", all.x = TRUE)
+
+#----------- VISUALIZE --------------------
+# plotting survival for groups EC1, EC2, EC3, EC4
+TCGAanalyze_survival(data = clin_subt_all,
+                     clusterCol = "groupsHC",
+                     main = "TCGA kaplan meier survival plot from consensus cluster",
+                     legend = "RNA Group",
+                     color = c("black","red","blue","green3"),
+                     filename = "case2_surv.png")
+
+```
+
+
+##Principal component analysis
+```{r}
+S <- TCGAquery_SampleTypes(colnames(dataFilt),"NT")
+S2 <- TCGAquery_SampleTypes(colnames(dataFilt),"TP")
+
+S2
+
+# Principal Component Analysis plot for ntop selected DEGs
+pca <- TCGAvisualize_PCA(log2(dataFilt+1),dataDEGsFiltLevel, ntopgenes = 10, S, S2)
+pca
+```
+

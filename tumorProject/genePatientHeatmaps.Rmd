@@ -1,0 +1,183 @@
+
+```{r}
+if(!require("RColorBrewer")) {
+   install.packages("RColorBrewer", dependencies=TRUE)
+   if(!require("RColorBrewer")) stop ("RColorBrewer not found")
+}
+
+if(!require("ggplot2")) {
+   install.packages("ggplot2", dependencies=TRUE)
+   if(!require("ggplot2")) stop ("ggplot2 not found")
+}
+
+if(!require("munsell")) {
+   install.packages("munsell", dependencies=TRUE)
+   if(!require("munsell")) stop ("munsell not found")
+}
+
+if(!require("gdata")) {
+   install.packages("gdata", dependencies=TRUE)
+   if(!require("gdata")) stop ("gdata not found")
+}
+
+if(!require("caTools")) {
+   install.packages("caTools", dependencies=TRUE)
+   if(!require("caTools")) stop ("caTools not found")
+}
+
+if(!require("gtools")) {
+   install.packages("gtools", dependencies=TRUE)
+   if(!require("gtools")) stop ("gtools not found")
+}
+
+if(!require("gplots")) {
+   install.packages("gplots", dependencies=TRUE)
+   if(!require("gplots")) stop ("gplots not found")
+}
+
+if(!require("labeling")) {
+   install.packages("labeling", dependencies=TRUE)
+   if(!require("labeling")) stop ("labeling not found")
+}
+```
+
+```{r}
+#geneGroup<-"macrophages"
+#genesENSGID<-c("ENSG00000129226","ENSG00000122877","ENSG00000038945","ENSG00000120217","ENSG00000153815","ENSG00000178573","ENSG00000112715","ENSG00000137265","ENSG00000131203")
+#genesNames<-c("CD68","Egr2","MSR1","PDL1","CMip","CMaf","VEGF","IRF4","IDO")
+
+#geneGroup<-"macrophages2"
+#genesENSGID<-c("ENSG00000170458","ENSG00000203747","ENSG00000129226", "ENSG00000177575", "ENSG00000178573","ENSG00000122877", "ENSG00000260314")
+#genesNames<-c("CD14","CD16","CD68","CD163","CMaf","EGR2","CD206")
+
+#geneGroup<-"macrophages3"
+#genesENSGID<-c("ENSG00000153815","ENSG00000178573")
+#genesNames<-c("CMip","CMaf")
+
+#geneGroup<-"bCells"
+#genesENSGID<-c("ENSG00000170476","ENSG00000177455","ENSG00000156738","ENSG00000139193","ENSG00000004468","ENSG00000188389")
+#genesNames<-c("MZB1","CD19","CD20","CD27","CD38","PD1")
+
+#geneGroup<-"gdtCells"
+#genesENSGID<-c("ENSG00000101916","ENSG00000120217","ENSG00000112115","ENSG00000163599","ENSG00000139193","ENSG00000211829")
+#genesNames<-c("TLR8","PDL1","IL17","CTLA4","CD27","TRDC")
+
+#geneGroup<-"gdtCells2"
+#genesENSGID<-c("ENSG00000139193","ENSG00000111537","ENSG00000081237")
+#genesNames<-c("CD27","IFNG","CD45")
+
+#geneGroup<-"IL17"
+#genesENSGID<-"ENSG00000112115"
+#genesNames<-"IL17"
+
+#geneGroup<-"corexGroup13"
+#genesENSGID<-c("ENSG00000177455","ENSG00000117091","ENSG00000162706","ENSG00000158473","ENSG00000158481","ENSG00000012124","ENSG00000178562","ENSG00000076662","ENSG00000007312","ENSG00000105369","ENSG00000104894")
+#genesNames<-c("CD19","CD48","CADM3","CD1D","CD1C","CD22","CD28","ICAM3","CD79B","CD79A","CD37")
+
+#geneGroup<-"corexGroup14"
+#genesENSGID<-c("ENSG00000173762","ENSG00000198821","ENSG00000116824","ENSG00000117090","ENSG00000153283","ENSG00000110448","ENSG00000122223","ENSG00000109943","ENSG00000013725","ENSG00000150637","ENSG00000160654","ENSG00000153563","ENSG00000172116","ENSG00000198851","ENSG00000167286")
+#genesNames<-c("CD7","CD247","CD2","SLAMF1","CD96","CD5","CD244","CRTAM","CD6","CD226","CD3G","CD8A","CD8B","CD3E","CD3D")
+
+#geneGroup<-"corexGroup14P"
+#genesENSGID<-c("ENSG00000198821","ENSG00000116824","ENSG00000117090","ENSG00000110448","ENSG00000122223","ENSG00000109943","ENSG00000013725","ENSG00000160654","ENSG00000153563","ENSG00000172116","ENSG00000198851","ENSG00000167286")
+#genesNames<-c("CD247","CD2","SLAMF1","CD5","CD244","CRTAM","CD6","CD3G","CD8A","CD8B","CD3E","CD3D")
+
+#geneGroup<-"corexGroup19"
+#genesENSGID<-c("ENSG00000137265","ENSG00000139193")#,"ENSG00000213999","ENSG00000170476")
+#genesNames<-c("IRF4","CD27")#,"MEF2B","MZB1")
+
+geneGroup<-"corexGroup28mis0p1"
+genesENSGID<-c("ENSG00000105369","ENSG00000177455","ENSG00000169442","ENSG00000188389","ENSG00000134061","ENSG00000104894","ENSG00000160593","ENSG00000178562","ENSG00000163599","ENSG00000049768","ENSG00000139193")
+genesNames<-c("CD79A","CD19","CD52","PDCD1","CD180","CD37","JAML","CD28","CTLA4","FOXP3","CD27")
+
+
+#geneGroup<-"hallmarkInflammatoryGroup"
+#genesENSGID<-"ENSG00000169896"
+#genesNames<-"CD11B"
+
+genesdf<-data.frame(genesENSGID,genesNames)
+
+genesdf
+
+dataGenes1<-dataPrep3[which(row.names(dataPrep3) %in% genesdf$genesENSGID),,drop=FALSE]
+
+dataGenes2<-scale(t(log2(dataGenes1+1)))
+
+if(length(dataGenes2[1,])>1){
+dataGenes3<-dataGenes2[order(rowMedians(dataGenes2)),]
+rM<-apply(dataGenes3, 1, median)
+colOrder<-match(genesdf$genesENSGID,colnames(dataGenes3))
+dataGenes4<-dataGenes3[,colOrder]
+colnames(dataGenes4)<-genesdf$genesNames
+}else{
+dataGenes3<-dataGenes2[order(dataGenes2),]
+rM<-dataGenes3
+}
+
+rM<-data.frame(rM)
+colnames(rM)<-"rowMedians"
+write.csv(rM,"survivalPlots/rowMedians.csv")
+
+colOrder
+
+dataGenes4
+
+#genes1<-"ENSG00000153815"
+#dataGenes1<-dataPrep3[which(row.names(dataPrep3) %in% genes1),]
+#dataGenes2<-scale(log2(dataGenes1+1))
+#dataGenes3<-dataGenes2[order(dataGenes2),]
+#rS<-dataGenes3
+```
+
+
+
+```{r}
+
+
+  currWidth <- 5000
+  currHeight <- 5000
+
+  # creates a own color palette from red to green
+
+  #########################################################
+  ##HEATMAP FOR INDIVIDUAL EXPRESSION VALUES ##
+  #########################################################
+  
+  # creates a red/yellow color palette 
+  my_palette <- colorRampPalette(c("blue", "light blue", "pink", "red"),space="rgb")
+  
+  outFN <- paste0("survivalPlots/heatmapMatrix",geneGroup,".png")
+  
+  #########################################################
+  ### C) Customizing and plotting the heat map
+  #########################################################
+  
+  
+  
+  png(outFN,               # create PNG for the heat map        
+      width = currWidth,        # 5 x 300 pixels
+      height = currHeight,      # 80*300
+      res = 300,                # 300 pixels per inch
+      pointsize = 17)            # smaller font size
+  
+  heatmap.2(t(dataGenes4), 
+            key = TRUE,
+            keysize=0.95,
+            #cellnote = dataGenes1,      # same data set for cell labels
+            main = "Expression Level", # heat map title
+            notecol="black",           # change font color of cell labels to black
+            density.info="none",       # turns off density plot inside color legend
+            trace="none",              # turns off trace lines inside the heat map
+            margins =c(15,11),         # widens margins around plot -- previously c(12,9)
+            col=my_palette,            # use on color palette defined earlier 
+            #breaks=col_breaks,        # enable color transition at specified limits
+            dendrogram="row",          # only draw a row dendrogram
+            Colv=FALSE,                 # cluster columns
+            labCol = FALSE,
+            cexRow=1,
+            cexCol=1.75)
+  
+  dev.off()               # close the PNG device
+  
+```
+

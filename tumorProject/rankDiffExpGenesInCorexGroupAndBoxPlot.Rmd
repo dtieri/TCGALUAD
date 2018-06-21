@@ -1,0 +1,108 @@
+##Library innitialization
+```{r}
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(data.table)
+library(dplyr)
+library(DT)
+library(survival)
+library(easyGgplot2)
+
+#library("categoryCompare")
+#library("GO.db")
+#library("KEGG.db")
+
+```
+
+
+##Import Corex Group Information, Import list of Differentially Expressed Genes
+```{r}
+
+corexDir<-"Corex/out/LUADGeneTable_hidden3_0_200_1_40/"
+
+corexGroups<-read.table(file = paste0(workingDir,"corexGroups.csv"), sep = ",", header=TRUE, row.names=1)
+mis<-read.table(file = paste0(workingDir,"mis.csv"), sep = ",", header=TRUE, row.names=1)
+alpha<-read.table(file = paste0(workingDir,"alpha.csv"), sep = ",", header=TRUE, row.names=1)
+
+diffExpDir<-"../tumorNormalProject/out/"
+
+diffExpGenes<-read.table(file = paste0(diffExpDir,"DiffExpLUADTable.csv"), sep = ",", header=TRUE, row.names=1)
+
+dim(diffExpGenes)
+
+diffExpGenes
+
+#FIND MAF
+#MAFIndex<-grep("ENSG00000178573",row.names(corexGroups))
+#corexGroups[MAFIndex,]
+#corexGroups[which(corexGroups$group0==195),]
+
+#which(corexGroups[which(corexGroups$group0==0),]$mI1>0.25)
+```
+
+##Filter Ethnicities
+```{r}
+
+dataPrepW<-dataPrep[,grep("white.*",colData(dataPrep)$race)]
+
+dataPrepB<-dataPrep[,grep("black.*",colData(dataPrep)$race)]
+colData(dataPrepB)$race<-"black"
+
+dataPrepWB<-cbind(dataPrepW,dataPrepB)
+rm(dataPrepW)
+rm(dataPrepB)
+
+dataPrepWB$race
+
+colData(dataPrepWB)
+```
+
+##Selected genes
+```{r}
+
+diffExpSortedDir<-"../tumorProjectRaw/LinearCorex/out/LUADGeneTableVST0_200_1_40/"
+
+diffExpIGGenesSorted<-read.table(file = paste0(diffExpSortedDir,"diffExpRankGroup19.csv"), sep = ",", header=TRUE, row.names=1)
+
+dataPrepSelected<-dataPrepWB[rownames(dataPrepWB) %in%rownames(diffExpIGGenesSorted[2,]),]
+
+assays(dataPrepSelected)
+
+colData(dataPrepSelected)$race
+
+dataPrepSelectedCounts<-data.frame(t(log(assays(dataPrepSelected)$'HTSeq - FPKM')+1))
+dataPrepSelectedCounts$race<-colData(dataPrepSelected)$race
+dim(dataPrepSelectedCounts)
+
+dataPrepSelectedCounts$ENSG00000223350
+
+dataPrepSelectedCounts[,1]
+
+dataPrepSelectedCountsL<-dataPrepSelectedCounts[which(dataPrepSelectedCounts[,1]<=quantile(dataPrepSelectedCounts[,1],probs=0.25)),]
+dataPrepSelectedCountsL$exprGr<-"Low"
+dim(dataPrepSelectedCountsL)
+dataPrepSelectedCountsL$exprGr
+
+
+dataPrepSelectedCountsU<-dataPrepSelectedCounts[which(dataPrepSelectedCounts[,1]>=quantile(dataPrepSelectedCounts[,1],probs=0.75)),]
+dataPrepSelectedCountsU$exprGr<-"High"
+dim(dataPrepSelectedCountsU)
+dataPrepSelectedCountsU$exprGr
+
+dataPrepSelectedCountsLU<-rbind(dataPrepSelectedCountsL,dataPrepSelectedCountsU)
+rm(dataPrepSelectedCountsL)
+rm(dataPrepSelectedCountsU)
+
+dataPrepSelectedCountsLU
+
+dataPrepSelectedCountsLU$race<-as.factor(dataPrepSelectedCountsLU$race)
+dataPrepSelectedCountsLU$exprGr<-as.factor(dataPrepSelectedCountsLU$exprGr)
+
+dataPrepSelectedCountsLU
+
+ggplot2.dotplot(data=dataPrepSelectedCountsLU, xName='exprGr',yName='ENSG00000223350', groupName='race',
+      position=position_dodge(1.0), 
+      backgroundColor="white", groupColors=c('red','blue'),
+      addBoxplot=TRUE, boxplotFill="white")
+```
+
